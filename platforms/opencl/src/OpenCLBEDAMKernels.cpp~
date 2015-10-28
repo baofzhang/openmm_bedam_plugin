@@ -1,0 +1,251 @@
+/* -------------------------------------------------------------------------- *
+ *                                   OpenMM                                   *
+ * -------------------------------------------------------------------------- *
+ * This is part of the OpenMM molecular simulation toolkit originating from   *
+ * Simbios, the NIH National Center for Physics-Based Simulation of           *
+ * Biological Structures at Stanford, funded under the NIH Roadmap for        *
+ * Medical Research, grant U54 GM072970. See https://simtk.org.               *
+ *                                                                            *
+ * Portions copyright (c) 2008-2015 Stanford University and the Authors.      *
+ * Authors: Peter Eastman                                                     *
+ * Contributors:                                                              *
+ *                                                                            *
+ * This program is free software: you can redistribute it and/or modify       *
+ * it under the terms of the GNU Lesser General Public License as published   *
+ * by the Free Software Foundation, either version 3 of the License, or       *
+ * (at your option) any later version.                                        *
+ *                                                                            *
+ * This program is distributed in the hope that it will be useful,            *
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of             *
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              *
+ * GNU Lesser General Public License for more details.                        *
+ *                                                                            *
+ * You should have received a copy of the GNU Lesser General Public License   *
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.      *
+ * -------------------------------------------------------------------------- */
+
+#include "openmm/opencl/OpenCLKernels.h"
+#include "openmm/opencl/OpenCLArray.h"
+#include "OpenCLBEDAMKernels.h"
+#include "OpenCLBEDAMKernelSources.h"
+#include "openmm/opencl/OpenCLForceInfo.h"
+#include "openmm/LangevinIntegrator.h"
+#include "openmm/Context.h"
+#include "openmm/internal/OSRngSeed.h"
+#include "openmm/opencl/OpenCLBondedUtilities.h"
+#include "openmm/opencl/OpenCLExpressionUtilities.h"
+#include "openmm/opencl/OpenCLIntegrationUtilities.h"
+#include "openmm/opencl/OpenCLNonbondedUtilities.h"
+//#include "openmm/opencl/OpenCLKernelSources.h"
+//#include "openmm/opencl/SimTKOpenMMRealType.h"
+//#include "openmm/opencl/SimTKOpenMMUtilities.h"
+#include <algorithm>
+#include <cmath>
+#include <set>
+
+using namespace BEDAMPlugin;
+using namespace OpenMM;
+using namespace std;
+
+static void setPosqCorrectionArg(OpenCLContext& cl, cl::Kernel& kernel, int index) {
+  if (cl.getUseMixedPrecision())
+    kernel.setArg<cl::Buffer>(index, cl.getPosqCorrection().getDeviceBuffer());
+  else
+    kernel.setArg<void*>(index, NULL);
+}
+
+
+const float BOLTZMANN = 1.380658e-23f; // (J/K)
+const float AVOGADRO = 6.0221367e23f;
+const float RGAS = BOLTZMANN*AVOGADRO; // (J/(mol K))
+const float BOLTZ = RGAS/1000;         // (kJ/(mol K))
+
+
+
+
+
+
+OpenCLIntegrateLangevinStepBEDAMKernel::~OpenCLIntegrateLangevinStepBEDAMKernel() {
+    if (params != NULL)
+        delete params;
+    //if(rforce !=NULL)
+    // delete rforce;
+}
+
+void OpenCLIntegrateLangevinStepBEDAMKernel::initialize(const System& system, const LangevinIntegratorBEDAM& integrator) {
+    cl.getPlatformData().initializeContexts(system);
+    cl.getIntegrationUtilities().initRandomNumberGenerator(integrator.getRandomNumberSeed());
+    map<string, string> defines;
+    defines["NUM_ATOMS"] = cl.intToString(cl.getNumAtoms());
+    defines["PADDED_NUM_ATOMS"] = cl.intToString(cl.getPaddedNumAtoms());
+    cl::Program program = cl.createProgram(OpenCLBEDAMKernelSources::langevin, defines, "");
+
+    //rforce = new OpenCLArray (cl, 2,"rforce");
+    //cforce = OpenCLArray::create<mm_float4>(cl,2,"rforce");
+    //vector<mm_float4> rforce(2);
+    //rforce[0] = mm_float4(0,0,0,0);
+    //rforce[1] = mm_float4(0,0,0,0);
+    //rforce = new OpenCLArray(cl, 2, "rforce"); 
+    //kernel1 = cl::Kernel(program, "integrateLangevinPart1");
+    //kernel2 = cl::Kernel(program, "integrateLangevinPart2");
+    //edit on 6/24/15
+    //kernel1 = cl::Kernel(program, "twoAtomsRestraintForce");
+    //kernel2 = cl::Kernel(program, "hybridForce");
+    kernel1 = cl::Kernel(program, "bedamForce");
+    kernel2 = cl::Kernel(program, "integrateLangevinPart1");
+    kernel3 = cl::Kernel(program, "integrateLangevinPart2");
+    kernel4 = cl::Kernel(program, "copyDataToSecondPart");
+    //edit end 6/24/15
+    params = new OpenCLArray(cl, 3, cl.getUseDoublePrecision() || cl.getUseMixedPrecision() ? sizeof(cl_double) : sizeof(cl_float), "langevinParams");
+    //rforce1 = new OpenCLArray(cl, 
+    prevStepSize = -1.0;
+}
+
+void OpenCLIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const LangevinIntegratorBEDAM& integrator) {
+    OpenCLIntegrationUtilities& integration = cl.getIntegrationUtilities();
+    int numAtoms = cl.getNumAtoms();
+    //edit on 6/26/15
+    int ligId = integrator.getLigandId();
+    double lambdaId = integrator.getLamdaId();
+    int atom1 = integrator.getAtom1Number();
+    int atom2 = integrator.getAtom2Number();
+    double kf = integrator.getKf();
+    double r0 = integrator.getR0();
+    //print atom1, atom2, kf, r0;
+    //edit end on 6/26/15
+    
+    if (!hasInitializedKernels) {
+        hasInitializedKernels = true;
+	
+	/*
+        kernel1.setArg<cl::Buffer>(0, cl.getVelm().getDeviceBuffer());
+        kernel1.setArg<cl::Buffer>(1, cl.getForce().getDeviceBuffer());
+        kernel1.setArg<cl::Buffer>(2, integration.getPosDelta().getDeviceBuffer());
+        kernel1.setArg<cl::Buffer>(3, params->getDeviceBuffer());
+        kernel1.setArg<cl::Buffer>(4, integration.getStepSize().getDeviceBuffer());
+        kernel1.setArg<cl::Buffer>(5, integration.getRandom().getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(0, cl.getPosq().getDeviceBuffer());
+        setPosqCorrectionArg(cl, kernel2, 1);
+        kernel2.setArg<cl::Buffer>(2, integration.getPosDelta().getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(3, cl.getVelm().getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(4, integration.getStepSize().getDeviceBuffer());
+	*/
+	//edit on 6/24/15
+	kernel1.setArg<cl::Buffer>(0, cl.getPosq().getDeviceBuffer());
+	kernel1.setArg<cl::Buffer>(1, cl.getForce().getDeviceBuffer());
+	kernel2.setArg<cl::Buffer>(0, cl.getVelm().getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(1, cl.getForce().getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(2, integration.getPosDelta().getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(3, params->getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(4, integration.getStepSize().getDeviceBuffer());
+        kernel2.setArg<cl::Buffer>(5, integration.getRandom().getDeviceBuffer());
+        kernel3.setArg<cl::Buffer>(0, cl.getPosq().getDeviceBuffer());
+        setPosqCorrectionArg(cl, kernel3, 1);
+        kernel3.setArg<cl::Buffer>(2, integration.getPosDelta().getDeviceBuffer());
+        kernel3.setArg<cl::Buffer>(3, cl.getVelm().getDeviceBuffer());
+        kernel3.setArg<cl::Buffer>(4, integration.getStepSize().getDeviceBuffer());
+	kernel4.setArg<cl::Buffer>(0, cl.getPosq().getDeviceBuffer());
+	kernel4.setArg<cl::Buffer>(1, cl.getVelm().getDeviceBuffer());
+
+
+	//edit end on 6/24/15
+    }
+
+
+
+    double temperature = integrator.getTemperature();
+    double friction = integrator.getFriction();
+    double stepSize = integrator.getStepSize();
+    if (temperature != prevTemp || friction != prevFriction || stepSize != prevStepSize) {
+        // Calculate the integration parameters.
+
+        double tau = (friction == 0.0 ? 0.0 : 1.0/friction);
+        double kT = BOLTZ*temperature;
+        double vscale = exp(-stepSize/tau);
+        double fscale = (1-vscale)*tau;
+        double noisescale = sqrt(2*kT/tau)*sqrt(0.5*(1-vscale*vscale)*tau);
+        if (cl.getUseDoublePrecision() || cl.getUseMixedPrecision()) {
+            vector<cl_double> p(params->getSize());
+            p[0] = vscale;
+            p[1] = fscale;
+            p[2] = noisescale;
+            params->upload(p);
+            mm_double2 ss = mm_double2(0, stepSize);
+            integration.getStepSize().upload(&ss);
+        }
+        else {
+            vector<cl_float> p(params->getSize());
+            p[0] = (cl_float) vscale;
+            p[1] = (cl_float) fscale;
+            p[2] = (cl_float) noisescale;
+            params->upload(p);
+            mm_float2 ss = mm_float2(0, (float) stepSize);
+            integration.getStepSize().upload(&ss);
+        }
+        prevTemp = temperature;
+        prevFriction = friction;
+        prevStepSize = stepSize;
+    }
+
+//edit on 6.23.15
+    
+    //call the two atoms restraint force kernel1
+    kernel1.setArg<cl_int>(2,atom1);
+    kernel1.setArg<cl_int>(3,atom2);
+    kernel1.setArg<cl_float>(4,kf);
+    kernel1.setArg<cl_float>(5,r0);
+    kernel1.setArg<cl_float>(6,lambdaId);
+    //kernel1.setArg<cl::Buffer>(5, rforce->getDeviceBuffer());
+    //kernel1.setArg<cl::Buffer>(6, rforce2->getDeviceBuffer());
+    cl.executeKernel(kernel1, numAtoms);
+
+    //call the hybridforces manipulator kernel2
+    //kernel2.setArg<cl_int>(1,atom1);
+    //kernel2.setArg<cl_int>(2,atom2);
+    //kernel2.setArg<cl_float>(3,lambdaId);
+    //kernel2.setArg<cl::Buffer>(4, rforce->getDeviceBuffer());
+    //kernel2.setArg<cl::Buffer>(5, rforce2->getDeviceBuffer());
+
+    //cl.executeKernel(kernel2, numAtoms);
+
+//edit end on 6/24/15
+
+    // Call the first integration kernel.
+
+    kernel2.setArg<cl_uint>(6, integration.prepareRandomNumbers(cl.getPaddedNumAtoms()));
+    cl.executeKernel(kernel2, numAtoms); //edit on 6/24/15
+
+    // Apply constraints.
+
+    integration.applyConstraints(integrator.getConstraintTolerance());
+
+    // Call the second integration kernel.
+
+    cl.executeKernel(kernel3, numAtoms); //edit on 6/24/15
+
+    //edit on 6/23/15
+    // call the third coordinate manipulator kernel
+    kernel4.setArg<cl_int>(2,ligId);
+    cl.executeKernel(kernel4, numAtoms);
+    
+    //edit end on 6/23/15
+
+
+    integration.computeVirtualSites();
+
+    // Update the time and step count.
+
+    cl.setTime(cl.getTime()+stepSize);
+    cl.setStepCount(cl.getStepCount()+1);
+    cl.reorderAtoms();
+    
+    // Reduce UI lag.
+    
+#ifdef WIN32
+    cl.getQueue().flush();
+#endif
+}
+
+double OpenCLIntegrateLangevinStepBEDAMKernel::computeKineticEnergy(ContextImpl& context, const LangevinIntegratorBEDAM& integrator) {
+    return cl.getIntegrationUtilities().computeKineticEnergy(0.5*integrator.getStepSize());
+}

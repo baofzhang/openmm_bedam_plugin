@@ -1,0 +1,242 @@
+/* -------------------------------------------------------------------------- *
+ *                                   OpenMM                                   *
+ * -------------------------------------------------------------------------- *
+ * This is part of the OpenMM molecular simulation toolkit originating from   *
+ * Simbios, the NIH National Center for Physics-Based Simulation of           *
+ * Biological Structures at Stanford, funded under the NIH Roadmap for        *
+ * Medical Research, grant U54 GM072970. See https://simtk.org.               *
+ *                                                                            *
+ * Portions copyright (c) 2008-2013 Stanford University and the Authors.      *
+ * Authors: Peter Eastman                                                     *
+ * Contributors:                                                              *
+ *                                                                            *
+ * Permission is hereby granted, free of charge, to any person obtaining a    *
+ * copy of this software and associated documentation files (the "Software"), *
+ * to deal in the Software without restriction, including without limitation  *
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,   *
+ * and/or sell copies of the Software, and to permit persons to whom the      *
+ * Software is furnished to do so, subject to the following conditions:       *
+ *                                                                            *
+ * The above copyright notice and this permission notice shall be included in *
+ * all copies or substantial portions of the Software.                        *
+ *                                                                            *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR *
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,   *
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL    *
+ * THE AUTHORS, CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,    *
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR      *
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE  *
+ * USE OR OTHER DEALINGS IN THE SOFTWARE.                                     *
+ * -------------------------------------------------------------------------- */
+
+#include "ReferenceBEDAMKernels.h"
+#include "openmm/reference/ReferenceConstraints.h"
+#include "ReferenceStochasticDynamicsBEDAM.h"
+#include "openmm/Context.h"
+#include "openmm/System.h"
+#include "openmm/internal/ContextImpl.h"
+#include "openmm/Integrator.h"
+#include "openmm/OpenMMException.h"
+#include "openmm/reference/SimTKOpenMMUtilities.h"
+#include <cmath>
+#include <iostream>
+#include <limits>
+
+using namespace BEDAMPlugin;
+using namespace OpenMM;
+using namespace std;
+
+static int** allocateIntArray(int length, int width) {
+    int** array = new int*[length];
+    for (int i = 0; i < length; ++i)
+        array[i] = new int[width];
+    return array;
+}
+
+static RealOpenMM** allocateRealArray(int length, int width) {
+    RealOpenMM** array = new RealOpenMM*[length];
+    for (int i = 0; i < length; ++i)
+        array[i] = new RealOpenMM[width];
+    return array;
+}
+
+static void disposeIntArray(int** array, int size) {
+    if (array) {
+        for (int i = 0; i < size; ++i)
+            delete[] array[i];
+        delete[] array;
+    }
+}
+
+static void disposeRealArray(RealOpenMM** array, int size) {
+    if (array) {
+        for (int i = 0; i < size; ++i)
+            delete[] array[i];
+        delete[] array;
+    }
+}
+
+static vector<RealVec>& extractPositions(ContextImpl& context) {
+    ReferencePlatform::PlatformData* data = reinterpret_cast<ReferencePlatform::PlatformData*>(context.getPlatformData());
+    return *((vector<RealVec>*) data->positions);
+}
+
+static vector<RealVec>& extractVelocities(ContextImpl& context) {
+    ReferencePlatform::PlatformData* data = reinterpret_cast<ReferencePlatform::PlatformData*>(context.getPlatformData());
+    return *((vector<RealVec>*) data->velocities);
+}
+
+static vector<RealVec>& extractForces(ContextImpl& context) {
+    ReferencePlatform::PlatformData* data = reinterpret_cast<ReferencePlatform::PlatformData*>(context.getPlatformData());
+    return *((vector<RealVec>*) data->forces);
+}
+
+static RealVec& extractBoxSize(ContextImpl& context) {
+    ReferencePlatform::PlatformData* data = reinterpret_cast<ReferencePlatform::PlatformData*>(context.getPlatformData());
+    return *(RealVec*) data->periodicBoxSize;
+}
+
+static ReferenceConstraints& extractConstraints(ContextImpl& context) {
+    ReferencePlatform::PlatformData* data = reinterpret_cast<ReferencePlatform::PlatformData*>(context.getPlatformData());
+    return *(ReferenceConstraints*) data->constraints;
+}
+
+/**
+ * Compute the kinetic energy of the system, possibly shifting the velocities in time to account
+ * for a leapfrog integrator.
+ */
+static double computeShiftedKineticEnergy(ContextImpl& context, vector<double>& masses, double timeShift) {
+    vector<RealVec>& posData = extractPositions(context);
+    vector<RealVec>& velData = extractVelocities(context);
+    vector<RealVec>& forceData = extractForces(context);
+    int numParticles = context.getSystem().getNumParticles();
+    
+    // Compute the shifted velocities.
+    
+    vector<RealVec> shiftedVel(numParticles);
+    for (int i = 0; i < numParticles; ++i) {
+        if (masses[i] > 0)
+            shiftedVel[i] = velData[i]+forceData[i]*(timeShift/masses[i]);
+        else
+            shiftedVel[i] = velData[i];
+    }
+    
+    // Apply constraints to them.
+    
+    vector<double> inverseMasses(numParticles);
+    for (int i = 0; i < numParticles; i++)
+        inverseMasses[i] = (masses[i] == 0 ? 0 : 1/masses[i]);
+    extractConstraints(context).applyToVelocities(posData, shiftedVel, inverseMasses, 1e-4);
+    
+    // Compute the kinetic energy.
+    
+    double energy = 0.0;
+    for (int i = 0; i < numParticles; ++i)
+        if (masses[i] > 0)
+            energy += masses[i]*(shiftedVel[i].dot(shiftedVel[i]));
+    return 0.5*energy;
+}
+
+
+ReferenceIntegrateLangevinStepBEDAMKernel::~ReferenceIntegrateLangevinStepBEDAMKernel() {
+  if (dynamics)
+    delete dynamics;
+}
+
+void ReferenceIntegrateLangevinStepBEDAMKernel::initialize(const System& system, const LangevinIntegratorBEDAM& integrator) {
+int numParticles = system.getNumParticles();
+masses.resize(numParticles);
+for (int i = 0; i < numParticles; ++i)
+  masses[i] = static_cast<RealOpenMM>(system.getParticleMass(i));
+SimTKOpenMMUtilities::setRandomNumberSeed((unsigned int) integrator.getRandomNumberSeed());
+}
+
+void ReferenceIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const LangevinIntegratorBEDAM& integrator){
+
+ double temperature = integrator.getTemperature();
+ double friction = integrator.getFriction();
+ double stepSize = integrator.getStepSize();
+ int ligId = integrator.getLigandId();
+ double lambdaId = integrator.getLamdaId();
+ vector<RealVec>& posData = extractPositions(context);
+ vector<RealVec>& velData = extractVelocities(context);
+ vector<RealVec>& forceData = extractForces(context);
+ int numParticles = context.getSystem().getNumParticles();
+ int halfN = numParticles/2;
+  
+    int atom1 = integrator.getAtom1Number();
+    int atom2 = integrator.getAtom2Number();
+    double kf = integrator.getKf();  
+    double r0 = integrator.getR0();    
+    double dr = 0.0;
+    double dx = 0.0;
+    double dy = 0.0;
+    double dz = 0.0;
+    double rfx1 = 0.0;
+    double rfy1 = 0.0;
+    double rfz1 = 0.0;
+    double rfx2 = 0.0;
+    double rfy2 = 0.0;
+    double rfz2 = 0.0;
+
+    dx = posData[atom2][0] - posData[atom1][0];
+    dy = posData[atom2][1] - posData[atom1][1];
+    dz = posData[atom2][2] - posData[atom1][2];
+
+    dr = sqrt(dx*dx+dy*dy+dz*dz);
+     
+    if(dr>r0) 
+    {
+  	  rfx1 = kf * (dr-r0) * dx/dr;
+          rfy1 = kf * (dr-r0) * dy/dr;
+          rfz1 = kf * (dr-r0) * dz/dr;
+          rfx2 = -kf * (dr-r0) * dx/dr;
+          rfy2 = -kf * (dr-r0) * dy/dr;
+          rfz2 = -kf * (dr-r0) * dz/dr;
+	}
+
+ for (int i = 0 ; i < halfN; ++i ){
+   forceData[i][0] = lambdaId*forceData[i][0]+(1.0-lambdaId)*forceData[i+halfN][0] ;
+   forceData[i][1] = lambdaId*forceData[i][1]+(1.0-lambdaId)*forceData[i+halfN][1] ;
+   forceData[i][2] = lambdaId*forceData[i][2]+(1.0-lambdaId)*forceData[i+halfN][2] ; 
+
+ }
+   
+   
+   forceData[atom1][0] += rfx1;
+   forceData[atom1][1] += rfy1;
+   forceData[atom1][2] += rfz1;
+   forceData[atom2][0] += rfx2;
+   forceData[atom2][1] += rfy2;
+   forceData[atom2][2] += rfz2;
+
+
+                                                                                                       
+ if (dynamics == 0 || temperature != prevTemp || friction != prevFriction || stepSize != prevStepSize) {
+   // Recreate the computation objects with the new parameters.                                                            
+
+   if (dynamics)
+     delete dynamics;
+   RealOpenMM tau = static_cast<RealOpenMM>( friction == 0.0 ? 0.0 : 1.0/friction );
+   dynamics = new ReferenceStochasticDynamicsBEDAM(
+						   context.getSystem().getNumParticles(),
+						   static_cast<RealOpenMM>(stepSize),
+						   static_cast<RealOpenMM>(tau),
+						   static_cast<RealOpenMM>(temperature) );
+   dynamics->setReferenceConstraintAlgorithm(&extractConstraints(context));
+   prevTemp = temperature;
+   prevFriction = friction;
+   prevStepSize = stepSize;
+ }
+
+ dynamics->update(context.getSystem(), posData, velData, forceData, masses, integrator.getConstraintTolerance(),ligId);                                                                                                                       
+
+  data.time += stepSize;
+ data.stepCount++;
+}
+
+
+double ReferenceIntegrateLangevinStepBEDAMKernel::computeKineticEnergy(ContextImpl& context, const LangevinIntegratorBEDAM& integrator) {
+  return computeShiftedKineticEnergy(context, masses, 0.5*integrator.getStepSize());
+}
+
