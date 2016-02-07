@@ -3,6 +3,7 @@
 A plugin to add the BEDAM model to OpenMM
 
 Baofeng Zhang <BZhang@brooklyn.cuny.edu>
+
 Emilio Gallicchio <egallicchio@brooklyn.cuny.edu>
 
 ## License
