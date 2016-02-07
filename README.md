@@ -2,10 +2,18 @@
 
 A plugin to add the BEDAM model to OpenMM
 
+Baofeng Zhang <BZhang@brooklyn.cuny.edu>
+Emilio Gallicchio <egallicchio@brooklyn.cuny.edu>
+
 ## License
 
 This software is released under the LGPL license. See LICENSE.
 
+## Credits
+
+This software is written and maintained by Baofeng Zhang <BZhang@brooklyn.cuny.edu> and Emilio Gallicchio <egallicchio@brooklyn.cuny.edu> with support from a grant from the National Science Foundation (ACI 1440665).
+
+The plugin interface is based on the [openmmexampleplugin](https://github.com/peastman/openmmexampleplugin) by Peter Eastman.
 
 ## Installation
 
