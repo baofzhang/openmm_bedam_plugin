@@ -158,7 +158,7 @@ extern "C" __global__ void bedamForce(int numAtoms, int paddedNumAtoms, const re
         while (index < halfAtoms) {
 
             
-	    const real scale = 1.0;//RECIP((real) 0x100000000); 
+	    const real scale = RECIP((real) 0x100000000); 
    	    real3 force1 = make_real3(scale*force[index], scale*force[index+paddedNumAtoms], scale*force[index+paddedNumAtoms*2]);
 	    real3 force2 = make_real3(scale*force[index+halfAtoms], scale*force[index+halfAtoms+paddedNumAtoms], scale*force[index+halfAtoms+paddedNumAtoms*2]);
 	    

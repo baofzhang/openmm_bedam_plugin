@@ -254,7 +254,7 @@ void ReferenceStochasticDynamicsBEDAM::update(const OpenMM::System& system, vect
    
    for (int j = halfN; j<ligandN; ++j ) {
 
-     atomCoordinates[j][0] = atomCoordinates[j-halfN][0]+1000.0;
+     atomCoordinates[j][0] = atomCoordinates[j-halfN][0]+100.0;
      atomCoordinates[j][1] = atomCoordinates[j-halfN][1];
      atomCoordinates[j][2] = atomCoordinates[j-halfN][2];
      
@@ -264,7 +264,7 @@ void ReferenceStochasticDynamicsBEDAM::update(const OpenMM::System& system, vect
    }
    for (int j = ligandN; j<numberOfAtoms; ++j){
 
-     atomCoordinates[j][0] = atomCoordinates[j-halfN][0]+2000.0;
+     atomCoordinates[j][0] = atomCoordinates[j-halfN][0]+200.0;
      atomCoordinates[j][1] = atomCoordinates[j-halfN][1];
      atomCoordinates[j][2] = atomCoordinates[j-halfN][2];
 
