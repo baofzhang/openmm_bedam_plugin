@@ -130,8 +130,8 @@ class DesmondDMSFile(object):
         if self.bedam is not None:
             self.bedamId=0  #flag for BEDAM simulation and initial atom id for imaginary system #added on 02/26/15
             self.file1Id=0
-            self.bedamX=1000.0  #distance between the original system and the imaginary system along X axis #added on 02/26/15
-            self.bedam1X=2000.0
+            self.bedamX=100.0  #distance between the original system and the imaginary system along X axis #added on 02/26/15
+            self.bedam1X=200.0
             
         self._open = False
         self._tables = None
@@ -176,7 +176,7 @@ class DesmondDMSFile(object):
                                       'cmdline: %(cmdline)s\n  executable: %(executable)s\n' % rowdict)
                     self.provenance = ''.join(provenance)
         except:
-            print "DesmondDMSFile: Warning, unable to retrieve provenance."
+            print( "DesmondDMSFile: Warning, unable to retrieve provenance.")
 
         # Build the topology
         self.topology, self.positions, self.velocities = self._createTopology()
@@ -263,7 +263,6 @@ class DesmondDMSFile(object):
 
 	#collect the number of atoms in receptor
 	self.receptor_atoms=range(0,len(atoms))  #edit on 3.10.15
-	print len(self.receptor_atoms)
 
         #edited on 02/27/15
         
@@ -309,22 +308,22 @@ class DesmondDMSFile(object):
             for p0, p1 in self._conn1.execute('SELECT p0, p1 FROM bond'):
                 top.addBond(atoms[p0+self.fileId], atoms[p1+self.fileId])
 
-            
         #edit end on 02/27/15
 
 	#collect the number of atoms in ligands
 	self.ligand_atoms=range(len(self.receptor_atoms),len(atoms)) #edit 3.10.15
-	print len(self.ligand_atoms)
         self.original_atoms = range(0,len(atoms))
-        #print self.original_atoms
-        self.image_atoms = range(len(atoms),2*len(atoms)) #edit 3.11.15
-        #print self.image_atoms
-        self.total_atoms = range(0,2*len(atoms))
-        print len(self.total_atoms)
-
+        self.total_atoms = range(0,len(atoms))
         #edited on 02/26/15
         
         if self.bedam is not None:
+            #print self.original_atoms
+            self.image_atoms = range(len(atoms),2*len(atoms)) #edit 3.11.15
+            #print self.image_atoms
+            self.total_atoms = range(0,2*len(atoms))
+
+
+
             self.bedamId = len(atoms) 
             
             lastChain = None
@@ -422,12 +421,11 @@ class DesmondDMSFile(object):
                 #edit end 3.25.15
             
         #edit end on 02/27/15
-        #print atoms
 
         positions = positions*angstrom
         velocities = velocities*angstrom/femtosecond
         
-        print positions[0]
+        #print positions[0]
 
         return top, positions, velocities
 
@@ -572,11 +570,121 @@ class DesmondDMSFile(object):
             #edited end on 02.27.15
         #edit end on 02/26/15
 
+        print("Length of gb_p(HCT): %d" % len(gb_p))
         return gb_p
 
+    def _get_agbnp2_params(self):
+        """
+        get charge, radius, etc. from AGBNP2 table in the .dms file and computes AGBNP2 parameters for each atom
+        """
+	length_conv = units.angstrom.conversion_factor_to(units.nanometer)
+        en_conv = units.kilocalorie_per_mole.conversion_factor_to(units.kilojoule_per_mole)
+        gamma_conv = en_conv/(length_conv*length_conv)
+        alpha_conv = en_conv*length_conv*length_conv*length_conv;
+
+        # gather AGBNP2 parameters from agbnp2 table
+        #   atomic number and charge from particle table matching atom id
+        #   sigma and epsilon from nonbonded_param table matching hbtype from particle
+        q="""SELECT anum,charge,radius,igamma,ialpha,idelta,sgamma,salpha,sdelta,hbtype,hbw,sigma,epsilon from particle INNER JOIN agbnp2 ON particle.id==agbnp2.id INNER JOIN nonbonded_param ON particle.nbtype==nonbonded_param.id ORDER BY particle.id"""
+        
+        gb_p = []
+        
+        try:
+            for anum,charge,radius,igamma,ialpha,idelta,sgamma,salpha,sdelta,hbtype,hbw,sigma,epsilon in self._conn.execute(q):
+
+                if anum == 1:
+                    ishydrogenN = 1
+                else:
+                    ishydrogenN = 0
+
+                radiusN = length_conv*radius
+                chargeN = charge
+                gammaN = gamma_conv*(igamma+sgamma)
+                alphaN = alpha_conv*(ialpha+salpha)
+                # delta parameter is ignored
+                hbtypeN = hbtype
+                hbwN = en_conv * hbw
+                
+                gb_p.append([radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN])
+        except:
+            print("Warning: unable to retrieve AGBNP parameters")
+            return None
+        
+        if self.ligfile:
+
+            try:
+                for anum,charge,radius,igamma,ialpha,idelta,sgamma,salpha,sdelta,hbtype,hbw,sigma,epsilon in self._conn1.execute(q):
+
+                    if anum == 1:
+                        ishydrogenN = 1
+                    else:
+                        ishydrogenN = 0
+                        
+                    radiusN = length_conv*radius
+                    chargeN = charge
+                    gammaN = gamma_conv*(igamma+sgamma)
+                    alphaN = alpha_conv*(ialpha+salpha)
+                    # delta parameter is ignored
+                    hbtypeN = hbtype
+                    hbwN = en_conv * hbw
+                
+                    gb_p.append([radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN])
+            except:
+                print("Warning: unable to retrieve AGBNP parameters of ligand.") 
+                return None
+
+        if self.bedam is None:
+            return gb_p
+
+        #for BEDAM read the parameters again for other image
+        try:
+            for anum,charge,radius,igamma,ialpha,idelta,sgamma,salpha,sdelta,hbtype,hbw,sigma,epsilon in self._conn.execute(q):
+
+                if anum == 1:
+                    ishydrogenN = 1
+                else:
+                    ishydrogenN = 0
+
+                radiusN = length_conv*radius
+                chargeN = charge
+                gammaN = gamma_conv*(igamma+sgamma)
+                alphaN = alpha_conv*(ialpha+salpha)
+                # delta parameter is ignored
+                hbtypeN = hbtype
+                hbwN = en_conv * hbw
+                
+                gb_p.append([radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN])
+        except:
+            print("Warning: unable to retrieve AGBNP parameters")
+            return None
+        
+        if self.ligfile:
+
+            try:
+                for anum,charge,radius,igamma,ialpha,idelta,sgamma,salpha,sdelta,hbtype,hbw,sigma,epsilon in self._conn1.execute(q):
+
+                    if anum == 1:
+                        ishydrogenN = 1
+                    else:
+                        ishydrogenN = 0
+
+                    radiusN = length_conv*radius
+                    chargeN = charge
+                    gammaN = gamma_conv*(igamma+sgamma)
+                    alphaN = alpha_conv*(ialpha+salpha)
+                    # delta parameter is ignored
+                    hbtypeN = hbtype
+                    hbwN = en_conv * hbw
+                    
+                    gb_p.append([radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN])
+            except:
+                print("Warning: unable to retrieve AGBNP parameters of ligand.") 
+                return None
+
+        return gb_p
     
     def createSystem(self, nonbondedMethod=ff.NoCutoff, nonbondedCutoff=1.0*nanometer,
-                     ewaldErrorTolerance=0.0005, removeCMMotion=True, hydrogenMass=None, OPLS=False, implicitSolvent=None):
+                     ewaldErrorTolerance=0.0005, removeCMMotion=True, hydrogenMass=None, OPLS=False, implicitSolvent=None, AGBNPVersion=1):
         """Construct an OpenMM System representing the topology described by this dms file
 
         Parameters:
@@ -594,8 +702,9 @@ class DesmondDMSFile(object):
         """
         self._checkForUnsupportedTerms()
         sys = mm.System()
+        self.OPLS = OPLS
         self.implicitSolvent=implicitSolvent
-	
+
         # Buld the box dimensions
         sys = mm.System()
         boxSize = self.topology.getUnitCellDimensions()
@@ -603,7 +712,7 @@ class DesmondDMSFile(object):
             sys.setDefaultPeriodicBoxVectors((boxSize[0], 0, 0), (0, boxSize[1], 0), (0, 0, boxSize[2]))
         elif nonbondedMethod in (ff.CutoffPeriodic, ff.Ewald, ff.PME):
             raise ValueError('Illegal nonbonded method for a non-periodic system')
-
+        
         #TODO: how to manipulate the boxSize for duplicate system, right now, only consider implicit solvent model //02/26/15
 
         # Create all of the particles
@@ -615,7 +724,6 @@ class DesmondDMSFile(object):
         if self.ligfile:
             for mass in self._conn1.execute('SELECT mass from particle'):
                 sys.addParticle(mass[0]*dalton)
-
         #added end on 02.27.15       
         
         #if BEDAM is not None, duplicate the particles #added on 02/25/15
@@ -628,7 +736,6 @@ class DesmondDMSFile(object):
             #    raise ValueError('nonbondedCutoff needs to be set up for BEDAM')
             for mass in self._conn.execute('SELECT mass from particle'):
                 sys.addParticle(mass[0]*dalton)
-                
         #added end on 02/25/15
             
 
@@ -637,12 +744,10 @@ class DesmondDMSFile(object):
             if self.ligfile:
                 for mass in self._conn1.execute('SELECT mass from particle'):
                     sys.addParticle(mass[0]*dalton)
-
             #added end on 02.27.15 
 
             #print self.bedamId      #tested on 02/25/15  
             #print self.bedamX
-
 
         # Add all of the forces
         self._addBondsToSystem(sys)
@@ -662,36 +767,81 @@ class DesmondDMSFile(object):
                      ff.PME:mm.NonbondedForce.PME}
         nb.setNonbondedMethod(methodMap[nonbondedMethod])
         nb.setCutoffDistance(nonbondedCutoff)
+        nb.setUseDispersionCorrection(False)
         nb.setEwaldErrorTolerance(ewaldErrorTolerance)
         if cnb is not None:
             cnb.setNonbondedMethod(methodMap[nonbondedMethod])
             cnb.setCutoffDistance(nonbondedCutoff)
-        
+            cnb.setUseSwitchingFunction(False)
+            cnb.setUseLongRangeCorrection(False);
+            
 	#add implicit solvent model. Right now, only HCT model is considered.
 	if implicitSolvent is not None:
+
+            #with implicit solvent turn off native reaction field
+            #However note that this does not affect the shifted Coulomb potential of the Nonbonded force
+            #(it affects the only the energy, not the forces and equation of motion)
+            nb.setReactionFieldDielectric(1.0)
+
             if implicitSolvent is HCT:
                 gb_parms = self._get_gb_params()
                 if gb_parms:
                     print('Adding HCT GB force ...')
-                    gb = GBSAHCTForce(SA='ACE', cutoff=1.0)
+                    gb = GBSAHCTForce(SA='ACE', cutoff=nonbondedCutoff._value)
                     for i in range(len(gb_parms)):	      
-                        gb.addParticle(list(gb_parms[i])) #edit 3.13.15
-	    # Set cutoff method //2.10.15 for setting up cutoff options in implicit solvent model
-		
-            if nonbondedMethod is ff.NoCutoff:
-                gb.setNonbondedMethod(mm.NonbondedForce.NoCutoff)
-            elif nonbondedMethod is ff.CutoffNonPeriodic:
-                gb.setNonbondedMethod(mm.NonbondedForce.CutoffNonPeriodic)
-                #gb.setCutoffDistance(cutoff)
-            elif nonbondedMethod is ff.CutoffPeriodic:
-                gb.setNonbondedMethod(mm.NonbondedForce.CutoffPeriodic)
-                #gb.setCutoffDistance(cutoff)
-            else:
-                raise ValueError('Illegal nonbonded method for use with GBSA')
-            #gb.setForceGroup(self.GB_FORCE_GROUP)
-		
-            sys.addForce(gb)
+                        gb.addParticle(list(gb_parms[i]))#edit 3.13.15
 
+         	# Set cutoff method //2.10.15 for setting up cutoff options in implicit solvent model
+                if nonbondedMethod is ff.NoCutoff:
+                    gb.setNonbondedMethod(mm.NonbondedForce.NoCutoff)
+                elif nonbondedMethod is ff.CutoffNonPeriodic:
+                    gb.setNonbondedMethod(mm.NonbondedForce.CutoffNonPeriodic)
+                    gb.setCutoffDistance(nonbondedCutoff)
+                elif nonbondedMethod is ff.CutoffPeriodic:
+                    gb.setNonbondedMethod(mm.NonbondedForce.CutoffPeriodic)
+                    gb.setCutoffDistance(nonbondedCutoff)
+                else:
+                    raise ValueError('Illegal nonbonded method for use with GBSA')
+                #gb.setForceGroup(self.GB_FORCE_GROUP)
+                gb.finalize()
+                sys.addForce(gb)
+                self.hct_force = gb;
+                self.hct_gp_parms = gb_parms
+                
+            if implicitSolvent is 'GVolSA':
+                #implemented as AGBNP version 0
+                implicitSolvent = 'AGBNP'
+                AGBNPVersion = 0
+                print('Using GVolSA')
+
+            if implicitSolvent is 'AGBNP':
+                #load AGBNP plugin if available
+                try:
+                    from AGBNPplugin import AGBNPForce
+                    AGBNPEnabled = True
+                except ImportError:
+                    AGBNPEnabled = False
+                #sets up AGBNP
+                if AGBNPEnabled:
+                    gb_parms = self._get_agbnp2_params()
+                    if gb_parms:
+                        gb = AGBNPForce()
+                        gb.setNonbondedMethod(methodMap[nonbondedMethod])
+                        gb.setCutoffDistance(nonbondedCutoff)
+                        gb.setVersion(AGBNPVersion)
+                        print('Using AGBNP force version %d' % AGBNPVersion)
+                        # add particles
+                        for i in range(len(gb_parms)):
+                            [radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN] = gb_parms[i]
+                            h_flag = ishydrogenN > 0
+                            gb.addParticle(radiusN, gammaN, alphaN, chargeN, h_flag)
+                            #print("Adding", radiusN, gammaN, h_flag)
+                        sys.addForce(gb)
+                        self.agbnp_force = gb
+                        self.agbnp_gb_parms = gb_parms
+                else:
+                    print('Warning: AGBNP is not supported in this version')
+            
         # Adjust masses.
         if hydrogenMass is not None:
             for atom1, atom2 in self.topology.bonds():
@@ -742,7 +892,7 @@ class DesmondDMSFile(object):
         #edit end 3.17.15
 
         #edit 3.11.15
-        print sys.getNumForces()
+        #print sys.getNumForces()
         #print sys.getForce(0)
         #print sys.getForce(1)
         #print sys.getForce(2)
@@ -1235,12 +1385,14 @@ class DesmondDMSFile(object):
         cnb = None
         nb = mm.NonbondedForce()
         sys.addForce(nb)
-
+        self.nb_force = nb;
+        
         if OPLS:
             cnb = mm.CustomNonbondedForce("4.0*epsilon12*((sigma12/r)^12 - (sigma12/r)^6); sigma12=sqrt(sigma1*sigma2); epsilon12=sqrt(epsilon1*epsilon2)")
             cnb.addPerParticleParameter("sigma")
             cnb.addPerParticleParameter("epsilon")
             sys.addForce(cnb)
+            self.nb_opls_force = cnb
 
         if OPLS:
             q = """SELECT sigma, epsilon
@@ -1586,10 +1738,13 @@ class DesmondDMSFile(object):
 
     #edit 3.10.15
     def get_orig_force_parameters(self,sys):
-        force_nb = sys.getForce(3)
-        force_cnb = sys.getForce(4)
-        if self.implicitSolvent is not None:
-            force_cgb = sys.getForce(5)
+        force_nb = self.nb_force
+        if self.OPLS:
+            force_cnb = self.nb_opls_force
+        if self.implicitSolvent is 'AGBNP':
+            force_cgb = self.agbnp_force
+        if self.implicitSolvent is HCT:
+            force_cgb = self.hct_force
         #if self.restraint is not None:
         #    force_restraint = sys.getForce(7)
         #nb_orig_para=[]
@@ -1603,7 +1758,7 @@ class DesmondDMSFile(object):
             self.nb_orig_para.append((val[0]._value,val[1]._value,val[2]._value))
             #print val            
             self.cnb_orig_para.append(force_cnb.getParticleParameters(i))
-            if self.implicitSolvent is not None:
+            if self.implicitSolvent is HCT:
                 self.cgb_orig_para.append(force_cgb.getParticleParameters(i))
         #if self.restraint is not None:
         #    self.restraint_orig_para.append(force_restraint.getBondParameters(0))
@@ -1620,20 +1775,29 @@ class DesmondDMSFile(object):
 
     def set_orig_force_parameters(self,sys,context):
 
-        force_nb = sys.getForce(3)
-        force_cnb = sys.getForce(4)
-        if self.implicitSolvent is not None:
-            force_cgb = sys.getForce(5)        
-
+        force_nb = self.nb_force
+        if self.OPLS:
+            force_cnb = self.nb_opls_force
+        if self.implicitSolvent is HCT:
+            force_cgb = self.hct_force
+        if self.implicitSolvent is 'AGBNP':
+            force_cgb = self.agbnp_force
+            
         for i in self.total_atoms:
             val = list(self.nb_orig_para[i])
             force_nb.setParticleParameters(i,val[0],val[1],val[2])
-            force_cnb.setParticleParameters(i,list(self.cnb_orig_para[i]))
-            if self.implicitSolvent is not None:
+            if self.OPLS:
+                force_cnb.setParticleParameters(i,list(self.cnb_orig_para[i]))
+            if self.implicitSolvent is HCT:
                 force_cgb.setParticleParameters(i,list(self.cgb_orig_para[i]))
-
+            if self.implicitSolvent is 'AGBNP':
+                [radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN] = self.agbnp_gb_parms[i]
+                h_flag = ishydrogenN > 0
+                force_cgb.setParticleParameters(i,radiusN, gammaN, alphaN, chargeN, h_flag)
+                
         force_nb.updateParametersInContext(context)
-        force_cnb.updateParametersInContext(context)
+        if self.OPLS:
+            force_cnb.updateParametersInContext(context)
         if self.implicitSolvent is not None:
             force_cgb.updateParametersInContext(context)  
 
@@ -1642,25 +1806,46 @@ class DesmondDMSFile(object):
         #change the parameters for forces(including GB force, nonbonded force right now)
         #first get forces from sys, then change the parameters of the forces to zero them.
         
-        force_nb = sys.getForce(3)
-        force_cnb = sys.getForce(4)
-        if self.implicitSolvent is not None:
-            force_cgb = sys.getForce(5)        
+        force_nb = self.nb_force
+        if self.OPLS:
+            force_cnb = self.nb_opls_force
+        if self.implicitSolvent is HCT:
+            force_cgb = self.hct_force        
+        if self.implicitSolvent is 'AGBNP':
+            force_cgb = self.agbnp_force
                 
         if original is not None:
             for i in self.original_atoms:
                 force_nb.setParticleParameters(i,0.0,0.0,0.0)
-                force_cnb.setParticleParameters(i,[0.0,0.0])
-                if self.implicitSolvent is not None:
+                if self.OPLS:
+                    force_cnb.setParticleParameters(i,[0.0,0.0])
+                if self.implicitSolvent is HCT:
                     force_cgb.setParticleParameters(i,[0.0,-0.009])
+                if self.implicitSolvent is 'AGBNP':
+                    [radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN] = self.agbnp_gb_parms[i]
+                    h_flag = ishydrogenN > 0
+                    gammaN = 0.0;
+                    alphaN = 0.0;
+                    chargeN = 0.0;
+                    force_cgb.setParticleParameters(i,radiusN, gammaN, alphaN, chargeN, h_flag)
         else:
             for i in self.image_atoms:
                 force_nb.setParticleParameters(i,0.0,0.0,0.0)
-                force_cnb.setParticleParameters(i,[0.0,0.0])
-                if self.implicitSolvent is not None:
+                if self.OPLS:
+                    force_cnb.setParticleParameters(i,[0.0,0.0])
+                if self.implicitSolvent is HCT:
                     force_cgb.setParticleParameters(i,[0.0,-0.009])
+                if self.implicitSolvent is 'AGBNP':
+                    [radiusN,chargeN,gammaN,alphaN,hbtype,hbwN,ishydrogenN] = self.agbnp_gb_parms[i]
+                    h_flag = ishydrogenN > 0
+                    gammaN = 0.0;
+                    alphaN = 0.0;
+                    chargeN = 0.0;
+                    force_cgb.setParticleParameters(i,radiusN, gammaN, alphaN, chargeN, h_flag)
+                    
         force_nb.updateParametersInContext(context)
-        force_cnb.updateParametersInContext(context)
+        if self.OPLS:
+            force_cnb.updateParametersInContext(context)
         if self.implicitSolvent is not None:
             force_cgb.updateParametersInContext(context)        
         
@@ -1716,7 +1901,11 @@ class DesmondDMSFile(object):
         """
         if self._open:
             self._conn.close()
+            if self.ligfile:
+                self._conn1.close()
 
+
+            
     def __del__(self):
         self.close()
 
@@ -1861,7 +2050,7 @@ class ReceptorLigandRestraint(object):
         for parameter in self.bond_parameter_names:
             force.addPerBondParameter(parameter)
         restraint_index = force.addBond(particle1,particle2,self.bond_parameters)
-        print restraint_index
+        #print restraint_index
         return force
 
     def _computeStandardStateCorrection(self):
@@ -2081,7 +2270,7 @@ class FlatBottomReceptorLigandRestraint(ReceptorLigandRestraint):
             r0 = 5.0 * units.angstroms
         else:
             DEFAULT_DISTANCE = 15.0 * units.angstroms
-            print "WARNING: receptor only contains %d atoms; using default distance of %s" % (natoms, str(DEFAULT_DISTANCE))
+            print( "WARNING: receptor only contains %d atoms; using default distance of %s" % (natoms, str(DEFAULT_DISTANCE)))
             r0 = DEFAULT_DISTANCE
         print ("restraint distance r0 = %.1f A" % (r0 / units.angstroms))
         
