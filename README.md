@@ -47,44 +47,19 @@ make PythonInstall
 
 The last two steps may need superuser access depending on the installation target. It is recommended to to build the plugin under a `virtualenv` environment to install the python modules without superuser access.
 
-Important Notes for Installation
-
-Right now, the OpenMM 6.2.0 shows several errors when one installs the BEDAM plugin.
-
-1 After installing OpenMM, when one install BEDAM plugin, it shows the sfmt/sfmt.h is missing. One has to manually copy the sfmt folder to openmm/include/openmm/reference/
-
-2 After installing OpenMM, when one install BEDAM plugin, it shows the lepton/lepton.h is missing. One has to manually copy the lepton folder to openmm/include/openmm/opencl/
-
-3 When one runs 'make PythonInstall', it shows RPMD has errors. One has to manually disable several statements in the file BEDAMPluginWrapper.cpp in the folder build_openmm_bedam_plugin/python/ .
-
-The required disabled statements are as follows
-1 
-
-//static void *_p_OpenMM__RPMDIntegratorTo_p_OpenMM__Integrator(void *x, int *SWIGUNUSEDPARM(newmemory)) {
-  //return (void *)((OpenMM::Integrator *)  ((OpenMM::RPMDIntegrator *) x));
-  //}
-
-
-2
-
-/*  {&_swigt__p_OpenMM__RPMDIntegrator, _p_OpenMM__RPMDIntegratorTo_p_OpenMM__Integrator, 0, 0},*/
-
-Otherwise, one can not successfully install BEDAM plugin
-
-
 ## Test
 
 
 ```
 
 cd example
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<openmm_dir>/lib
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<openmm_dir>/lib:<openmm_dir>/lib/plugins
 python test.py
 
 Notes:
 
 1 the dmsreader.py in the example/ is the required file, this file can read two dms files into the openmm system.
-2 the example is calculating the binding energy for bcd and benzene with lambda equals to 1.0 and with HCT implicit solvent model. The dms files in the example/ have already been added the HCT parameters. 
+2 the example calculates the binding energy of a beta-cyclodextrin/benzene complex in implicit solvent. The dms files in the example/ have already been added the HCT parameters. 
 
 ```
 
@@ -100,7 +75,7 @@ python <async_re-openmm_dir>/bedamtempt_async_re.py mcl1-23.cntl
 
 Notes:
 
-1 'async_re-openmm_dir> is the async_re-openmm installation directory.
+1 <async_re-openmm_dir> is the async_re-openmm installation directory. Refer to [the async_re-openmm_dir github page](https://github.com/baofzhang/async_re-openmm) for download and installation instructions.
 2 the dmsreaderwscwrestraint.py is a new version of dmsreader.py. In this script, softcore, c-alpha restraint functions are added. In order to apply c-alpha restraint, one has to prepare the receptor dms file in advance so that there are x0, y0 ,z0 values, which are exactly the copies of original x,y,z values.
 3 One can control the soft-core value and other parameters in mcl1-23.py. 
 4 in this example, we use four GPUs to run the jobs, each GPU running one replica. The nodefile sets up the GPU arrangement.

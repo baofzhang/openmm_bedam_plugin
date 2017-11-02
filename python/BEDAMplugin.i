@@ -1,6 +1,6 @@
 %module BEDAMplugin
 
-%import(module="simtk.openmm") "OpenMMSwigHeaders.i"
+%import(module="simtk.openmm") "swig/OpenMMSwigHeaders.i"
 
 
 /*
@@ -20,8 +20,8 @@ namespace std {
 #include "OpenMM.h"
 #include "OpenMMAmoeba.h"
 #include "OpenMMDrude.h"
-
-
+#include "openmm/RPMDIntegrator.h"
+#include "openmm/RPMDMonteCarloBarostat.h"
 %}
 
 
@@ -38,12 +38,12 @@ import simtk.unit as unit
 
 
 /* strip the units off of all input arguments */
-%pythonprepend %{
-try:
-    args=mm.stripUnits(args)
-except UnboundLocalError:
-    pass
-%}
+//%pythonprepend %{
+//try:
+//    args=mm.stripUnits(args)
+//except UnboundLocalError:
+//    pass
+//%}
 
 
 /*

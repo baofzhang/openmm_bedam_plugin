@@ -25,8 +25,8 @@
 #include <cstring>
 #include <sstream>
 
-#include "openmm/reference/SimTKOpenMMCommon.h"
-#include "openmm/reference/SimTKOpenMMLog.h"
+//#include "openmm/reference/SimTKOpenMMCommon.h"
+//#include "openmm/reference/SimTKOpenMMLog.h"
 #include "openmm/reference/SimTKOpenMMUtilities.h"
 #include "ReferenceStochasticDynamicsBEDAM.h"
 #include "openmm/reference/ReferenceVirtualSites.h"
@@ -64,6 +64,7 @@ ReferenceStochasticDynamicsBEDAM::ReferenceStochasticDynamicsBEDAM( int numberOf
 
    // ensure tau is not zero -- if it is print warning message
 
+#ifdef NOTNOW
    if( _tau == zero ){
 
       std::stringstream message;
@@ -74,6 +75,7 @@ ReferenceStochasticDynamicsBEDAM::ReferenceStochasticDynamicsBEDAM( int numberOf
       _tau = one;
      
    }
+#endif
    xPrime.resize(numberOfAtoms);
    inverseMasses.resize(numberOfAtoms);
 }
