@@ -4,6 +4,7 @@ from simtk.openmm import *
 from simtk.unit import *
 from sys import stdout
 import os, re,time, shutil
+import multiprocessing as mp
 from dmsreader import *
 from datetime import datetime
 from BEDAMplugin import *
@@ -14,24 +15,31 @@ def binding_energy(dms,simulation,positions):
     simulation.context.setPositions(positions)
     state=context.getState(getEnergy=True)
     U1=state.getPotentialEnergy()
-    print("U1=%f" % U1.value_in_unit(kilocalorie_per_mole))
+    #print("U1=%f" % U1.value_in_unit(kilocalorie_per_mole))
     #displace ligand
     new_positions = dms.displaceLigand(positions)
     simulation.context.setPositions(new_positions)
     state=context.getState(getEnergy=True)
     #energy of unbound energy
     U0=state.getPotentialEnergy()
-    print("U0=%f" % U0.value_in_unit(kilocalorie_per_mole))
+    #print("U0=%f" % U0.value_in_unit(kilocalorie_per_mole))
     #simulation.context.setPositions(positions)
     return U1-U0
 
+def binding_energy_mp(dms_bindingE,simulation_bindingE,positions, temperature, lmbd, q):
+    be = binding_energy(dms_bindingE,simulation_bindingE,positions)
+    Ut = 0;#total energy, not used for now
+    #print("binding energy="+str(be))
+    output = "%i %f %12.6e %12.6e %12.6e\n" % (simulation.currentStep, temperature.value_in_unit(kelvin),lmbd, be.value_in_unit(kilocalorie_per_mole), Ut)
+    q.put(output)
+    
 print("Started at: " + str(time.asctime()))
 start=datetime.now()
-binding_file = 'test.out'
-f = open(binding_file, 'w')
 
-lmbd = 0.1
-print("lambda = %f" %(lmbd))
+binding_file = 'test.out'
+
+lmbd = 1.0e-7
+print("lambda = %12.6e" %(lmbd))
 #rcptfile_input  = 'bcd_recpt_c.dms'
 #ligfile_input   = 'benzene_lig_c.dms'
 #rcptfile_output = 'bcd_recpt_tmp.dms'
@@ -104,11 +112,11 @@ context=simulation.context
 #simulation context to compute binding energies without image and without a cutoff (large cutoff)
 
 dms_bindingE = DesmondDMSFile(ligfile_output, rcptfile_output)
-system_bindingE = dms_bindingE.createSystem(nonbondedMethod=CutoffNonPeriodic,nonbondedCutoff=20*nanometer, OPLS = True, implicitSolvent='AGBNP', AGBNPVersion=1)
-#platform_bindingE = Platform.getPlatformByName('Reference')
-#platform_properties = {}
+system_bindingE = dms_bindingE.createSystem(nonbondedMethod=NoCutoff, OPLS = True, implicitSolvent='AGBNP', AGBNPVersion=1)
+platform_bindingE = Platform.getPlatformByName('Reference')
+platform_properties = {}
 integrator_bindingE = LangevinIntegrator(temperature/kelvin, frictionCoeff/(1/picosecond), MDstepsize/ picosecond)
-simulation_bindingE = Simulation(dms_bindingE.topology, system_bindingE, integrator_bindingE, platform, properties)
+simulation_bindingE = Simulation(dms_bindingE.topology, system_bindingE, integrator_bindingE, platform_bindingE, platform_properties)
 natoms_bindingE = len(dms_bindingE.positions)
 print("Number of receptor atoms:"+str(natoms_bindingE - natoms_ligand))
 print("Number of ligand atoms:"+str(natoms_ligand))
@@ -121,10 +129,12 @@ be = binding_energy(dms_bindingE,simulation_bindingE,positions[0:natoms_bindingE
 print("initial binding energy="+str(be))
 
 stepId = 1000
-totalSteps = 50000
+totalSteps = 5000
 loopStep = totalSteps/stepId
 simulation.reporters.append(StateDataReporter(stdout, stepId, step=True, temperature=True))
 
+processes = []
+output_queues = []
 for i in range(loopStep):
     start_sim = datetime.now()
     simulation.step(stepId)
@@ -133,11 +143,20 @@ for i in range(loopStep):
     print("elapsed simulation time="+str(elapsed.seconds+elapsed.microseconds*1e-6)+"s")
     if simulation.currentStep%stepId==0:
         positions = simulation.context.getState(getPositions=True).getPositions()
-    	be = binding_energy(dms_bindingE,simulation_bindingE,positions[0:natoms_bindingE])
-        Ut = 0;#total energy, not used for now
-        print("binding energy="+str(be))
-        f.write("%i %f %f %f %f\n" % (simulation.currentStep, temperature.value_in_unit(kelvin),lmbd, be.value_in_unit(kilocalorie_per_mole), Ut))	
-
+        q = mp.Queue()
+        p = mp.Process(target=binding_energy_mp, args=(dms_bindingE,simulation_bindingE,positions[0:natoms_bindingE], temperature, lmbd,q))
+        processes.append(p)
+        output_queues.append(q)
+        p.start()
+        
+f = open(binding_file, 'w')        
+for i in range(0,len(processes)):
+    p = processes[i]
+    q = output_queues[i]
+    if p.is_alive():
+        p.join()
+    f.write(q.get())
+        
 f.close()
 
 positions = simulation.context.getState(getPositions=True).getPositions()

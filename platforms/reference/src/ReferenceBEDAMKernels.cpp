@@ -108,17 +108,14 @@ static ReferenceConstraints& extractConstraints(ContextImpl& context) {
 static double computeShiftedKineticEnergy(ContextImpl& context, vector<double>& masses, double timeShift) {
     vector<RealVec>& posData = extractPositions(context);
     vector<RealVec>& velData = extractVelocities(context);
-    vector<RealVec>& forceData = extractForces(context);
+    //vector<RealVec>& forceData = extractForces(context);
     int numParticles = context.getSystem().getNumParticles();
     
     // Compute the shifted velocities.
-    
+    //silently ignore time shift (forces are not reliable here because they have not been alchemically hybridized)
     vector<RealVec> shiftedVel(numParticles);
     for (int i = 0; i < numParticles; ++i) {
-        if (masses[i] > 0)
-            shiftedVel[i] = velData[i]+forceData[i]*(timeShift/masses[i]);
-        else
-            shiftedVel[i] = velData[i];
+      shiftedVel[i] = velData[i]; //+forceData[i]*(timeShift/masses[i]);
     }
     
     // Apply constraints to them.
@@ -163,9 +160,11 @@ void ReferenceIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, co
  vector<RealVec>& forceData = extractForces(context);
  int numParticles = context.getSystem().getNumParticles();
  int halfN = numParticles/2;
-  
-    int atom1 = integrator.getAtom1Number();
-    int atom2 = integrator.getAtom2Number();
+
+    //ligand atoms are stored first, followed by receptor atoms
+    int atom1 = integrator.getAtom1Number(); //tethered ligand atom 
+    int atom2 = integrator.getAtom2Number()+ligId; //tethered receptor atom
+    
     double kf = integrator.getKf();  
     double r0 = integrator.getR0();    
     double dr = 0.0;
@@ -199,18 +198,15 @@ void ReferenceIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, co
    forceData[i][0] = lambdaId*forceData[i][0]+(1.0-lambdaId)*forceData[i+halfN][0] ;
    forceData[i][1] = lambdaId*forceData[i][1]+(1.0-lambdaId)*forceData[i+halfN][1] ;
    forceData[i][2] = lambdaId*forceData[i][2]+(1.0-lambdaId)*forceData[i+halfN][2] ; 
-
  }
    
    
-   forceData[atom1][0] += rfx1;
-   forceData[atom1][1] += rfy1;
-   forceData[atom1][2] += rfz1;
-   forceData[atom2][0] += rfx2;
-   forceData[atom2][1] += rfy2;
-   forceData[atom2][2] += rfz2;
-
-
+ forceData[atom1][0] += rfx1;
+ forceData[atom1][1] += rfy1;
+ forceData[atom1][2] += rfz1;
+ forceData[atom2][0] += rfx2;
+ forceData[atom2][1] += rfy2;
+ forceData[atom2][2] += rfz2;
                                                                                                        
  if (dynamics == 0 || temperature != prevTemp || friction != prevFriction || stepSize != prevStepSize) {
    // Recreate the computation objects with the new parameters.                                                            
@@ -237,6 +233,6 @@ void ReferenceIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, co
 
 
 double ReferenceIntegrateLangevinStepBEDAMKernel::computeKineticEnergy(ContextImpl& context, const LangevinIntegratorBEDAM& integrator) {
-  return computeShiftedKineticEnergy(context, masses, 0.5*integrator.getStepSize());
+  return computeShiftedKineticEnergy(context, masses, 0.0*integrator.getStepSize());//ignore time shift
 }
 

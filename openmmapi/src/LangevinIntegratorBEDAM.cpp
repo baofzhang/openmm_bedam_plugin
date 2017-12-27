@@ -43,16 +43,16 @@ using namespace OpenMM;
 using std::string;
 using std::vector;
 
-LangevinIntegratorBEDAM::LangevinIntegratorBEDAM(double temperature, double frictionCoeff, double stepSize,int ligId, double lamdaId,int atom1, int atom2,double kf, double r0){                                                                                                                     
+LangevinIntegratorBEDAM::LangevinIntegratorBEDAM(double temperature, double frictionCoeff, double stepSize,int natoms_ligand, double lamdaId,int atom_lig_restr, int atom_rcpt_restr, double kf, double r0){                                                                                                                     
       setTemperature(temperature);
       setFriction(frictionCoeff);
       setStepSize(stepSize);
       setConstraintTolerance(1e-5);
       setRandomNumberSeed(osrngseed());
-      setLigandId(ligId);                                                                                                 
+      setLigandId(natoms_ligand);                                                                                                 
       setLamdaId(lamdaId);    
-      setAtom1Number(atom1);    
-      setAtom2Number(atom2);      
+      setAtom1Number(atom_lig_restr);    
+      setAtom2Number(atom_rcpt_restr);      
       setKf(kf);
       setR0(r0);
                                                                  

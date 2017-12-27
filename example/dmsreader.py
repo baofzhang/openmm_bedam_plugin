@@ -705,6 +705,7 @@ class DesmondDMSFile(object):
         #custom force with possibly OPLS combination rules 
         ONE_4PI_EPS0 = 138.935456
         umax = 4186 #maximum pair potential energy in kJ/mol (~1000 kcal/mol)
+        #step function ensures that negative energies are not capped 
         pair_potential = "step(ueff)*ueff+(1-step(ueff))*u ; ueff = umax*tanh(u/umax) ; u = ONE_4PI_EPS0*charge1*charge2/r + 4.0*epsilon12*sc6*(sc6 - 1); sc6=(sigma12/r)^6"
         if OPLS:
             combination_rules = "sigma12=sqrt(sigma1*sigma2); epsilon12=sqrt(epsilon1*epsilon2)"

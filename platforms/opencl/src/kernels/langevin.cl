@@ -190,7 +190,7 @@ __kernel void copyDataToSecondPart(__global real4* restrict posq, __global real4
     //int index = NUM_ATOMS/2;
     int index = get_global_id(0);
     int halfAtoms = NUM_ATOMS/2;
-    int ligN = NUM_ATOMS - ligId;
+    int ligN =  halfAtoms+ligId;
     
     while (index < NUM_ATOMS) {
 	 
@@ -200,7 +200,7 @@ __kernel void copyDataToSecondPart(__global real4* restrict posq, __global real4
 	real4 pos2 = posq[index - halfAtoms];
 	real4 vel1 = velm[index];
 	real4 vel2 = velm[index - halfAtoms];
-	pos1.x = (index < ligN)? (pos2.x + 100.0f) : (pos2.x + 200.0f);
+	pos1.x = (index < ligN)? (pos2.x + 200.0f) : (pos2.x + 100.0f);
  	pos1.y = pos2.y;
 	pos1.z = pos2.z;
 	vel1.xyz = vel2.xyz;

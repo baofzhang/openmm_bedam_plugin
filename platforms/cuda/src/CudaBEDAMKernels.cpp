@@ -82,7 +82,7 @@ void CudaIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const L
     int ligId = integrator.getLigandId();
     double lambdaId = integrator.getLamdaId();
     int atom1 = integrator.getAtom1Number();
-    int atom2 = integrator.getAtom2Number();
+    int atom2 = integrator.getAtom2Number()+ligId;
     double kf = integrator.getKf();
     double r0 = integrator.getR0();
 
@@ -158,5 +158,5 @@ void CudaIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const L
 }
 
 double CudaIntegrateLangevinStepBEDAMKernel::computeKineticEnergy(ContextImpl& context, const LangevinIntegratorBEDAM& integrator) {
-    return cu.getIntegrationUtilities().computeKineticEnergy(0.5*integrator.getStepSize());
+  return cu.getIntegrationUtilities().computeKineticEnergy(0.0*integrator.getStepSize());//ignore time shift
 }

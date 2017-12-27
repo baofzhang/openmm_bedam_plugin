@@ -30,7 +30,7 @@
 #include "openmm/reference/SimTKOpenMMUtilities.h"
 #include "ReferenceStochasticDynamicsBEDAM.h"
 #include "openmm/reference/ReferenceVirtualSites.h"
-
+#include <iostream>
 #include <cstdio>
 
 using std::vector;
@@ -147,6 +147,11 @@ void ReferenceStochasticDynamicsBEDAM::updatePart1( int numberOfAtoms, vector<Re
    const RealOpenMM kT = BOLTZ*getTemperature();
    const RealOpenMM noisescale = SQRT(2*kT/tau)*SQRT(0.5*(1-vscale*vscale)*tau);
 
+   //   for (int ii = 0; ii < numberOfAtoms; ii++) {
+   //  std::cout << "V1:  " << ii << " " << " " << velocities[ii][0] << " " << velocities[ii][1] << " " << velocities[ii][2] << std::endl;
+   // }
+
+   
    for (int ii = 0; ii < numberOfAtoms; ii++) {
        if (inverseMasses[ii] != 0.0) {
            RealOpenMM sqrtInvMass = SQRT(inverseMasses[ii]);
@@ -155,6 +160,12 @@ void ReferenceStochasticDynamicsBEDAM::updatePart1( int numberOfAtoms, vector<Re
            } 
        }
    }
+
+   //for (int ii = 0; ii < numberOfAtoms; ii++) {
+   //  std::cout << "V2:  " << ii << " " << " " << velocities[ii][0] << " " << velocities[ii][1] << " " << velocities[ii][2] << std::endl;
+   //}
+
+
 }
 
 /**---------------------------------------------------------------------------------------
@@ -250,26 +261,24 @@ void ReferenceStochasticDynamicsBEDAM::update(const OpenMM::System& system, vect
                atomCoordinates[i][j] = xPrime[i][j];
            }
 
-   
+   //ligand atoms are stored first, followed by receptor atoms
    int halfN = numberOfAtoms/2;
-   int ligandN = numberOfAtoms - ligId;
-   
-   for (int j = halfN; j<ligandN; ++j ) {
-
-     atomCoordinates[j][0] = atomCoordinates[j-halfN][0]+100.0;
-     atomCoordinates[j][1] = atomCoordinates[j-halfN][1];
-     atomCoordinates[j][2] = atomCoordinates[j-halfN][2];
-     
-     velocities[j][0] = velocities[j-halfN][0];
-     velocities[j][1] = velocities[j-halfN][1];
-     velocities[j][2] = velocities[j-halfN][2];
-   }
-   for (int j = ligandN; j<numberOfAtoms; ++j){
+   for (int j = halfN; j<halfN+ligId; ++j){//ligand image
 
      atomCoordinates[j][0] = atomCoordinates[j-halfN][0]+200.0;
      atomCoordinates[j][1] = atomCoordinates[j-halfN][1];
      atomCoordinates[j][2] = atomCoordinates[j-halfN][2];
 
+     velocities[j][0] = velocities[j-halfN][0];
+     velocities[j][1] = velocities[j-halfN][1];
+     velocities[j][2] = velocities[j-halfN][2];
+   }
+   for (int j = halfN+ligId; j<numberOfAtoms; ++j ) {//receptor image
+
+     atomCoordinates[j][0] = atomCoordinates[j-halfN][0]+100.0;
+     atomCoordinates[j][1] = atomCoordinates[j-halfN][1];
+     atomCoordinates[j][2] = atomCoordinates[j-halfN][2];
+     
      velocities[j][0] = velocities[j-halfN][0];
      velocities[j][1] = velocities[j-halfN][1];
      velocities[j][2] = velocities[j-halfN][2];
