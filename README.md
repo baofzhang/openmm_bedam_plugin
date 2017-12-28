@@ -79,5 +79,3 @@ Notes:
 2 the dmsreaderwscwrestraint.py is a new version of dmsreader.py. In this script, softcore, c-alpha restraint functions are added. In order to apply c-alpha restraint, one has to prepare the receptor dms file in advance so that there are x0, y0 ,z0 values, which are exactly the copies of original x,y,z values.
 3 One can control the soft-core value and other parameters in mcl1-23.py. 
 4 in this example, we use four GPUs to run the jobs, each GPU running one replica. The nodefile sets up the GPU arrangement.
-
-# openmm_bedam_plugin

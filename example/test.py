@@ -38,17 +38,17 @@ start=datetime.now()
 
 binding_file = 'test.out'
 
-lmbd = 1.0e-7
+lmbd = 0.5
 print("lambda = %12.6e" %(lmbd))
-#rcptfile_input  = 'bcd_recpt_c.dms'
-#ligfile_input   = 'benzene_lig_c.dms'
-#rcptfile_output = 'bcd_recpt_tmp.dms'
-#ligfile_output  = 'benzene_lig_tmp.dms'
+ligfile_input   = 'benzene_lig.dms'
+rcptfile_input  = 'bcd_recpt.dms'
+ligfile_output  = 'benzene_lig_tmp.dms'
+rcptfile_output = 'bcd_recpt_tmp.dms'
 
-rcptfile_input  = 'mcl1-23_rcpt_2.dms'
-ligfile_input   = 'mcl1-23_lig_2.dms'
-rcptfile_output = 'mcl1-23_rcpt_tmp.dms'
-ligfile_output  = 'mcl1-23_lig_tmp.dms'
+#rcptfile_input  = 'mcl1-23_rcpt_2.dms'
+#ligfile_input   = 'mcl1-23_lig_2.dms'
+#rcptfile_output = 'mcl1-23_rcpt_tmp.dms'
+#ligfile_output  = 'mcl1-23_lig_tmp.dms'
 
 
 shutil.copyfile(rcptfile_input, rcptfile_output)
@@ -62,18 +62,18 @@ frictionCoeff = 0.5 / picosecond
 MDstepsize = 0.001 * picosecond
 
 #mcl1-23
-natoms_ligand = 43
-lig_atom_restr = 12   #index of ligand atom for Vsite (267CA -- central C of ligand)
-rcpt_atom_restr = 1535   #index of rcpt atom center of Vsite#267CA -- central C of ligand
-kf = 1225.0 #force constant for Vsite in (kj/mol)/nm^2
-r0 = 0.7 #radius of Vsite sphere
+#natoms_ligand = 43
+#lig_atom_restr = 12   #index of ligand atom for Vsite (267CA -- central C of ligand)
+#rcpt_atom_restr = 1535   #index of rcpt atom center of Vsite#267CA -- central C of ligand
+#kf = 1225.0 #force constant for Vsite in (kj/mol)/nm^2
+#r0 = 0.7 #radius of Vsite sphere
 
 #benzene
-#natoms_ligand = 12
-#rcpt_atom_restr = 39  #index of rcpt atom center of Vsite#267CA -- central C of ligand
-#lig_atom_restr = 147  #index of ligand atom for Vsite (267CA -- central C of ligand)
-#kf = 1000 #1225.0 #force constant for Vsite in (kj/mol)/nm^2
-#r0 = 0.8 #0.5 #radius of Vsite sphere
+natoms_ligand = 12
+rcpt_atom_restr = 39
+lig_atom_restr = 1
+kf = 1225.0 #force constant for Vsite in (kj/mol)/nm^2
+r0 = 0.7 #radius of Vsite sphere
 
 
 integrator = LangevinIntegratorBEDAM(temperature/kelvin, frictionCoeff/(1/picosecond), MDstepsize/ picosecond,natoms_ligand,lmbd,lig_atom_restr, rcpt_atom_restr,kf, r0)
@@ -83,7 +83,7 @@ integrator = LangevinIntegratorBEDAM(temperature/kelvin, frictionCoeff/(1/picose
 platform = Platform.getPlatformByName('OpenCL')
 
 properties = {}
-device = "1:0"
+device = "0:0"
 m = re.match("(\d+):(\d+)", device)
 if m:
     platformid = m.group(1)
@@ -109,8 +109,7 @@ context=simulation.context
 #    print("F: %d %f %f %f" % (at,f[0],f[1],f[2]))
 #    at += 1
 
-#simulation context to compute binding energies without image and without a cutoff (large cutoff)
-
+#simulation context to compute binding energies without image and without a cutoff
 dms_bindingE = DesmondDMSFile(ligfile_output, rcptfile_output)
 system_bindingE = dms_bindingE.createSystem(nonbondedMethod=NoCutoff, OPLS = True, implicitSolvent='AGBNP', AGBNPVersion=1)
 platform_bindingE = Platform.getPlatformByName('Reference')
