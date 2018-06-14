@@ -77,6 +77,7 @@ void OpenCLIntegrateLangevinStepBEDAMKernel::initialize(const System& system, co
     cl::Program program = cl.createProgram(OpenCLBEDAMKernelSources::langevin, defines, "");
 
     kernel1 = cl::Kernel(program, "bedamForce");
+    kernel1a = cl::Kernel(program, "CMForceCalcKernel");
     kernel2 = cl::Kernel(program, "integrateLangevinPart1");
     kernel3 = cl::Kernel(program, "integrateLangevinPart2");
     kernel4 = cl::Kernel(program, "copyDataToSecondPart");
@@ -84,6 +85,36 @@ void OpenCLIntegrateLangevinStepBEDAMKernel::initialize(const System& system, co
     params = new OpenCLArray(cl, 3, cl.getUseDoublePrecision() || cl.getUseMixedPrecision() ? sizeof(cl_double) : sizeof(cl_float), "langevinParams");
      
     prevStepSize = -1.0;
+
+    //CM ligand atoms
+    //vector<cl_int> atom1;
+    int at, nat;
+    
+    at = integrator.getAtom1Number(0);
+    nat = 0;
+    while(at >= 0){
+      nat += 1;
+      atom1.push_back(at);
+      at = integrator.getAtom1Number(nat);
+    }
+
+    //CM receptor atoms
+    //vector<cl_int> atom2;
+    int ligId = integrator.getLigandId();
+    at = integrator.getAtom2Number(0);
+    nat = 0;
+    while(at >= 0){
+      nat += 1;
+      atom2.push_back(at+ligId);
+      at = integrator.getAtom2Number(nat);
+    }
+  
+    indexes1 = new OpenCLArray(cl,atom1.size(), sizeof(cl_int), "indexes1");
+    indexes1->upload(atom1);
+
+    indexes2 = new OpenCLArray(cl,atom2.size(), sizeof(cl_int), "indexes2");
+    indexes2->upload(atom2);
+    
 }
 
 void OpenCLIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const LangevinIntegratorBEDAM& integrator) {
@@ -92,8 +123,6 @@ void OpenCLIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const
     
     int ligId = integrator.getLigandId();
     double lambdaId = integrator.getLamdaId();
-    int atom1 = integrator.getAtom1Number();
-    int atom2 = integrator.getAtom2Number()+ligId;
     double kf = integrator.getKf();
     double r0 = integrator.getR0();
     
@@ -104,17 +133,25 @@ void OpenCLIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const
 	
 	kernel1.setArg<cl::Buffer>(0, cl.getPosq().getDeviceBuffer());
 	kernel1.setArg<cl::Buffer>(1, cl.getForce().getDeviceBuffer());
+	
+	kernel1a.setArg<cl::Buffer>(0,indexes1->getDeviceBuffer());
+	kernel1a.setArg<cl::Buffer>(1,indexes2->getDeviceBuffer());
+	kernel1a.setArg<cl::Buffer>(2,cl.getPosq().getDeviceBuffer());
+	kernel1a.setArg<cl::Buffer>(3,cl.getForce().getDeviceBuffer());
+	
 	kernel2.setArg<cl::Buffer>(0, cl.getVelm().getDeviceBuffer());
         kernel2.setArg<cl::Buffer>(1, cl.getForce().getDeviceBuffer());
         kernel2.setArg<cl::Buffer>(2, integration.getPosDelta().getDeviceBuffer());
         kernel2.setArg<cl::Buffer>(3, params->getDeviceBuffer());
         kernel2.setArg<cl::Buffer>(4, integration.getStepSize().getDeviceBuffer());
         kernel2.setArg<cl::Buffer>(5, integration.getRandom().getDeviceBuffer());
+	
         kernel3.setArg<cl::Buffer>(0, cl.getPosq().getDeviceBuffer());
         setPosqCorrectionArg(cl, kernel3, 1);
         kernel3.setArg<cl::Buffer>(2, integration.getPosDelta().getDeviceBuffer());
         kernel3.setArg<cl::Buffer>(3, cl.getVelm().getDeviceBuffer());
         kernel3.setArg<cl::Buffer>(4, integration.getStepSize().getDeviceBuffer());
+
 	kernel4.setArg<cl::Buffer>(0, cl.getPosq().getDeviceBuffer());
 	kernel4.setArg<cl::Buffer>(1, cl.getVelm().getDeviceBuffer());
 
@@ -160,13 +197,16 @@ void OpenCLIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, const
 
     
     //call the two atoms restraint force kernel1
-    kernel1.setArg<cl_int>(2,atom1);
-    kernel1.setArg<cl_int>(3,atom2);
-    kernel1.setArg<cl_float>(4,kf);
-    kernel1.setArg<cl_float>(5,r0);
-    kernel1.setArg<cl_float>(6,lambdaId);
+    kernel1.setArg<cl_float>(2,lambdaId);
     cl.executeKernel(kernel1, numAtoms);
 
+    kernel1a.setArg<cl_int>(4,atom1.size());
+    kernel1a.setArg<cl_int>(5,atom2.size());
+    kernel1a.setArg<cl_float>(6,kf);
+    kernel1a.setArg<cl_float>(7,r0);
+    cl.executeKernel(kernel1a, numAtoms);
+
+    
     // Call the first integration kernel.
 
     kernel2.setArg<cl_uint>(6, integration.prepareRandomNumbers(cl.getPaddedNumAtoms()));

@@ -74,7 +74,12 @@ private:
     double prevTemp, prevFriction, prevStepSize;
     bool hasInitializedKernels;
     OpenMM::OpenCLArray* params;
-    cl::Kernel kernel1, kernel2,kernel3,kernel4;
+    OpenMM::OpenCLArray* indexes1;
+    OpenMM::OpenCLArray* indexes2;
+    
+    cl::Kernel kernel1, kernel1a, kernel2,kernel3,kernel4;
+    vector<cl_int> atom1;
+    vector<cl_int> atom2;
 };
 
 } // namespace BEDAMPlugin

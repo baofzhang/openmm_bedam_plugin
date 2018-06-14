@@ -126,23 +126,9 @@ __kernel void selectLangevinStepSize(mixed maxStepSize, mixed errorTol, mixed ta
 
 
 
-/**
- * calculate the restraint force between two atoms, one is from the ligand, the other one being from the receptor.
- */
 
-
-__kernel void bedamForce(__global const real4* restrict posq, __global real4* restrict force, int atom1, int atom2, real kf, real r0, real lambdaId) {
-
-    real4 pos1 = posq[atom1];
-    real4 pos2 = posq[atom2];
-    real4 delta =pos2 - pos1;
-    real r = SQRT(delta.x*delta.x + delta.y*delta.y + delta.z*delta.z);
-    real dEdR = kf*(r-r0);
-    dEdR = (r>r0)? (dEdR/r) : 0.0f;
-    delta.xyz *= dEdR;
-    real4 rforce1 = delta;
-    real4 rforce2 = -delta;
-
+//lambda-hybridize forces
+__kernel void bedamForce(__global const real4* restrict posq, __global real4* restrict force, real lambdaId){
 
     int index = get_global_id(0);
     int halfAtoms = NUM_ATOMS/2;
@@ -155,28 +141,63 @@ __kernel void bedamForce(__global const real4* restrict posq, __global real4* re
         force1.y = lambdaId*force1.y + (1.0 - lambdaId)*force2.y;
         force1.z = lambdaId*force1.z + (1.0 - lambdaId)*force2.z;
 
-
-	if(index == atom1){
-
-             force1.x += rforce1.x;
-             force1.y += rforce1.y;
-             force1.z += rforce1.z;
-
-             }
-	     if(index == atom2){
-
-             force1.x += rforce2.x;
-             force1.y += rforce2.y;
-             force1.z += rforce2.z;
-
-             }
         force[index] = force1;
 
         index += get_global_size(0);
 	
     }
 
+}
 
+
+/**
+ * restraint force between two groups of atoms (Vsite)
+ */
+__kernel void CMForceCalcKernel(__global const int*  restrict particle_indexes1,
+				__global const int*  restrict particle_indexes2,
+				__global const real4* restrict posq, //atomic positions
+				__global real4* restrict force,
+				int numParticles1, int numParticles2,
+				real kf,
+				real r0){
+				
+  uint id = get_global_id(0);
+  if(id == 0 && numParticles1 > 0 && numParticles2 > 0){
+    real4 rf1 = (real4)(0,0,0,0);
+    real4 rf2 = (real4)(0,0,0,0);
+    
+    real4 cm1 = (real4)(0,0,0,0);
+    float vn1 = 1./numParticles1;
+    for ( int i = 0; i < numParticles1; i++ ){
+      int index = particle_indexes1[i];
+      cm1 += vn1*posq[index];
+    }
+    real4 cm2 = (real4)(0,0,0,0);
+    float vn2 = 1./numParticles2;
+    for ( int i = 0; i < numParticles2; i++ ){
+      int index = particle_indexes2[i];
+      cm2 += vn2*posq[index];
+    }
+    real4 dist = cm2 - cm1;
+    float dr = sqrt(dot(dist,dist));
+    if(dr>r0) 
+    {
+      float a = kf*(dr-r0)/dr;
+      rf1 = dist *  vn1*a;
+      rf2 = dist * -vn2*a;
+    }
+    
+    for ( int i = 0; i < numParticles1; i++ ){
+      int index = particle_indexes1[i];
+      force[index] += rf1;
+    }
+    for ( int i = 0; i < numParticles2; i++ ){
+      int index = particle_indexes2[i];
+      force[index] += rf2;
+    }
+    
+    
+  }
 }
 
 

@@ -31,12 +31,14 @@
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE  *
  * USE OR OTHER DEALINGS IN THE SOFTWARE.                                     *
  * -------------------------------------------------------------------------- */
-
+#include <vector>
+#include <iostream>
 #include "openmm/Integrator.h"
 #include "openmm/Kernel.h"
 #include "openmm/internal/windowsExport.h"
 
 using namespace OpenMM;
+using namespace std;
 
 namespace BEDAMPlugin {
 
@@ -64,26 +66,44 @@ public:
      
      */
     
-    LangevinIntegratorBEDAM(double temperature, double frictionCoeff, double stepSize,int ligId, double lamdaId, int atom1, int atom2, double kf, double r0);
+    LangevinIntegratorBEDAM(double temperature, double frictionCoeff, double stepSize,int ligId, double lamdaId, double kf, double r0);
 
 
-    int getAtom1Number() const {
-	return Atom1;
+
+    //add a CM atom for the ligand, atom1 is the index of an atom of the ligand
+    void addAtom1Number(int atom1) {
+      Atom1.push_back(atom1);
 	}
-    void setAtom1Number(int atom1) {
-        Atom1 = atom1;
+    //return the id'th CM atom of the ligand or -1 if out of bounds
+    int getAtom1Number(int id) const {
+      if(id >= 0 && id < Atom1.size()) {
+	return Atom1[id];
+      }else{
+	return -1;
+      }
+    }
+
+
+    //add a CM atom for the receptor, atom2 is the index of an atom in the receptor
+    void addAtom2Number(int atom2) {
+      Atom2.push_back(atom2);
 	}
-    int getAtom2Number() const {
-	return Atom2;
-	}
-    void setAtom2Number(int atom2) {
-        Atom2 = atom2;
-	}
+    //return the id'th CM atom of the ligand or -1 if out of bounds
+    int getAtom2Number(int id) const {
+      if(id >= 0 && id < Atom2.size()) {
+	return Atom2[id];
+      }else{
+	return -1;
+      }
+    }
+
+
+
     double getKf() const {
     return Kf;
   	}
     void setKf(double kf) {
-	Kf = kf ; 
+      Kf = kf ; 
 	}
     double getR0() const {
 	return R0;
@@ -193,8 +213,8 @@ private:
     Kernel kernel;
     int ligId;                                                                                                         
     double lamdaid; 
-    int Atom1;
-    int Atom2;
+    vector<int> Atom1;
+    vector<int> Atom2;
     double Kf;
     double R0;
     

@@ -161,52 +161,77 @@ void ReferenceIntegrateLangevinStepBEDAMKernel::execute(ContextImpl& context, co
  int numParticles = context.getSystem().getNumParticles();
  int halfN = numParticles/2;
 
-    //ligand atoms are stored first, followed by receptor atoms
-    int atom1 = integrator.getAtom1Number(); //tethered ligand atom 
-    int atom2 = integrator.getAtom2Number()+ligId; //tethered receptor atom
-    
-    double kf = integrator.getKf();  
-    double r0 = integrator.getR0();    
-    double dr = 0.0;
-    double dx = 0.0;
-    double dy = 0.0;
-    double dz = 0.0;
-    double rfx1 = 0.0;
-    double rfy1 = 0.0;
-    double rfz1 = 0.0;
-    double rfx2 = 0.0;
-    double rfy2 = 0.0;
-    double rfz2 = 0.0;
+ //ligand atoms are stored first, followed by receptor atoms
+ vector<int> atom1;
+ int at, nat;
+ at = integrator.getAtom1Number(0);
+ nat = 0;
+ while(at >= 0){
+   nat += 1;
+   atom1.push_back(at);
+   at = integrator.getAtom1Number(nat);
+ }
+ 
+ vector<int> atom2;
+ at = integrator.getAtom2Number(0);
+ nat = 0;
+ while(at >= 0){
+   nat += 1;
+   atom2.push_back(at+ligId);
+   at = integrator.getAtom2Number(nat);
+ }
+ 
 
-    dx = posData[atom2][0] - posData[atom1][0];
-    dy = posData[atom2][1] - posData[atom1][1];
-    dz = posData[atom2][2] - posData[atom1][2];
+ //impose flat-bottom CM restraints (Vsite)
+ double kf = integrator.getKf();
+ double r0 = integrator.getR0();    
 
-    dr = sqrt(dx*dx+dy*dy+dz*dz);
-     
-    if(dr>r0) 
+ RealVec rf1 = RealVec(0.,0.,0.);
+ RealVec rf2 = RealVec(0.,0.,0.);
+
+ if(atom1.size() > 0 && atom2.size() > 0){//do this only if CM's are defined
+   RealVec cm1 = RealVec(0,0,0);
+   for (int i = 0; i < atom1.size(); i++) {
+     int index = atom1[i];
+     cm1 += posData[index]/atom1.size();
+    }
+   RealVec cm2 = RealVec(0,0,0);
+   for (int i = 0; i < atom2.size(); i++) {
+     int index = atom2[i];
+     cm2 += posData[index]/atom2.size();
+    }
+
+   RealVec dist = cm2 - cm1;
+   double dr = sqrt(dist.dot(dist));
+   double vn1 = 1./atom1.size();
+   double vn2 = 1./atom2.size();
+   
+   if(dr>r0) 
     {
-  	  rfx1 = kf * (dr-r0) * dx/dr;
-          rfy1 = kf * (dr-r0) * dy/dr;
-          rfz1 = kf * (dr-r0) * dz/dr;
-          rfx2 = -kf * (dr-r0) * dx/dr;
-          rfy2 = -kf * (dr-r0) * dy/dr;
-          rfz2 = -kf * (dr-r0) * dz/dr;
-	}
-
+      rf1 = dist *  vn1*kf*(dr-r0)/dr;
+      rf2 = dist * -vn2*kf*(dr-r0)/dr;
+    }
+   
+  }
+   
  for (int i = 0 ; i < halfN; ++i ){
    forceData[i][0] = lambdaId*forceData[i][0]+(1.0-lambdaId)*forceData[i+halfN][0] ;
    forceData[i][1] = lambdaId*forceData[i][1]+(1.0-lambdaId)*forceData[i+halfN][1] ;
    forceData[i][2] = lambdaId*forceData[i][2]+(1.0-lambdaId)*forceData[i+halfN][2] ; 
  }
    
-   
- forceData[atom1][0] += rfx1;
- forceData[atom1][1] += rfy1;
- forceData[atom1][2] += rfz1;
- forceData[atom2][0] += rfx2;
- forceData[atom2][1] += rfy2;
- forceData[atom2][2] += rfz2;
+ for(int i=0;i<atom1.size();i++){
+   int index = atom1[i];
+   forceData[index][0] += rf1[0];
+   forceData[index][1] += rf1[1];
+   forceData[index][2] += rf1[2];
+ }
+ for(int i=0;i<atom2.size();i++){
+   int index = atom2[i];
+   forceData[index][0] += rf2[0];
+   forceData[index][1] += rf2[1];
+   forceData[index][2] += rf2[2];
+ }
                                                                                                        
  if (dynamics == 0 || temperature != prevTemp || friction != prevFriction || stepSize != prevStepSize) {
    // Recreate the computation objects with the new parameters.                                                            

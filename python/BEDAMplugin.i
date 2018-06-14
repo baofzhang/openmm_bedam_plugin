@@ -76,12 +76,12 @@ public:
    %apply double INPUT {double kf};
    %apply double INPUT {double r0};
 */
-   LangevinIntegratorBEDAM(double temperature, double frictionCoeff, double stepSize, int ligId, double lamdaId, int atom1, int atom2, double kf, double r0) ;
+   LangevinIntegratorBEDAM(double temperature, double frictionCoeff, double stepSize, int ligId, double lamdaId, double kf, double r0) ;
    
-   int getAtom1Number() const ;
-   void setAtom1Number(int atom1) ;
-   int getAtom2Number() const ;
-   void setAtom2Number(int atom2) ;
+   int getAtom1Number(int id) const ;
+   void addAtom1Number(int atom1) ;
+   int getAtom2Number(int id) const ;
+   void addAtom2Number(int atom2) ;
    double getKf() const ;
    void setKf(double kf) ;
    double getR0() const ;

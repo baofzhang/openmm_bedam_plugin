@@ -70,14 +70,18 @@ MDstepsize = 0.001 * picosecond
 
 #benzene
 natoms_ligand = 12
-rcpt_atom_restr = 39
-lig_atom_restr = 1
+rcpt_atom_restr = [39]
+lig_atom_restr = [1]
 kf = 1225.0 #force constant for Vsite in (kj/mol)/nm^2
 r0 = 0.7 #radius of Vsite sphere
 
 
-integrator = LangevinIntegratorBEDAM(temperature/kelvin, frictionCoeff/(1/picosecond), MDstepsize/ picosecond,natoms_ligand,lmbd,lig_atom_restr, rcpt_atom_restr,kf, r0)
+integrator = LangevinIntegratorBEDAM(temperature/kelvin, frictionCoeff/(1/picosecond), MDstepsize/ picosecond,natoms_ligand,lmbd,kf, r0)
 #integrator = LangevinIntegrator(temperature/kelvin, frictionCoeff/(1/picosecond), MDstepsize/ picosecond)
+for atom in lig_atom_restr:
+    integrator.addAtom1Number(atom)
+for atom in rcpt_atom_restr:
+    integrator.addAtom2Number(atom)
 
 #platform = Platform.getPlatformByName('Reference')
 platform = Platform.getPlatformByName('OpenCL')
